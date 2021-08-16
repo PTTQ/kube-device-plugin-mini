@@ -12,7 +12,7 @@ func check(err error) {
 	}
 }
 
-func buildDevice(d *nvml.Device) *pluginapi.Device {
+func transformDevice(d *nvml.Device) *pluginapi.Device {
 	device := pluginapi.Device{}
 	log.Infof("Device %s' Path is %s.", d.UUID, d.Path)
 	device.ID = d.UUID
@@ -39,7 +39,7 @@ func getDevices() ([]*pluginapi.Device, map[uint]string) {
 	for idx := uint(0); idx < n; idx++ {
 		d, err := nvml.NewDevice(idx)
 		check(err)
-		devices = append(devices, buildDevice(d))
+		devices = append(devices, transformDevice(d))
 		deviceMap[idx] = devices[idx].ID
 	}
 	return devices, deviceMap

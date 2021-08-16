@@ -3,9 +3,10 @@ package main
 import (
 	"flag"
 	"github.com/NVIDIA/gpu-monitoring-tools/bindings/go/nvml"
+	"github.com/fsnotify/fsnotify"
 	log "github.com/sirupsen/logrus"
 	pluginapi "k8s.io/kubelet/pkg/apis/deviceplugin/v1beta1"
-	"kube-device-plugin-mini/pkg/plugin"
+	"kube-device-plugin-mini/pkg/plugin/common"
 	"kube-device-plugin-mini/pkg/plugin/nvidia"
 	"syscall"
 )
@@ -21,20 +22,20 @@ var (
 )
 
 func main() {
-	log.Infoln("Kube Device Plugin start...")
 	flag.Parse()
 
-	log.Println("Loading NVML...")
+	log.Infoln("Loading NVML...")
 	if err := nvml.Init(); err != nil {
-		log.Printf("Failed to initialize NVML: %s.", err)
-		log.Printf("If this is a GPU node, did you set the docker default runtime to `nvidia`?")
+		log.Warningf("Failed to initialize NVML: %s.", err)
+		log.Warningln("If this is a GPU node, did you set the docker default runtime to `nvidia`?")
+		log.Fatalln("Kube Device Plugin fail.")
 	}
 	defer func() {
 		log.Infof("Shutdown of NVML returned: %s.", nvml.Shutdown())
 	}()
 
-	sigChan := plugin.NewOSWatcher(syscall.SIGHUP, syscall.SIGINT, syscall.SIGTERM)
-	watcher, err := plugin.NewFileWatcher(pluginapi.DevicePluginPath)
+	sigChan := common.NewOSWatcher(syscall.SIGHUP, syscall.SIGINT, syscall.SIGTERM)
+	watcher, err := common.NewFileWatcher(pluginapi.DevicePluginPath)
 	if err != nil {
 		log.Fatalf("Failed to created file watcher: %s.", err)
 	}
@@ -49,6 +50,24 @@ func main() {
 		}
 	}()
 
-// 	TODO
+restart:
+
+	devicePlugin.Stop()
+	if err := devicePlugin.Start(); err != nil {
+		log.Warningf("Device plugin failed to start due to %s.", err)
+		goto restart
+	}
+
+	for {
+		select {
+		case event := <-watcher.Events:
+			if event.Name == pluginapi.KubeletSocket && event.Op&fsnotify.Create == fsnotify.Create {
+				log.Infof("Inotify: %s created, restarting.", pluginapi.KubeletSocket)
+				goto restart
+			}
+		case err := <-watcher.Errors:
+			log.Warningf("Inotify: %s", err)
+		}
+	}
 
 }
