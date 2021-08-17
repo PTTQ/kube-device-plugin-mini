@@ -11,7 +11,7 @@ import (
 )
 
 const (
-	resourceCount = "kubesys.io/gpu-count"
+	resourceCount = "doslab.io/gpu-count"
 )
 
 // KubeMessenger is used to communicate with api server
@@ -78,8 +78,23 @@ func (m* KubeMessenger) patchNodeStatus(newNode *v1.Node) error {
 	if err != nil {
 		return err
 	}
-	_, err = m.client.UpdateResourceStatus(string(nodeJson))
+	_, err = m.client.UpdateResource(string(nodeJson))
 	if err != nil {
 		return err
 	}
+	return nil
+}
+
+func (m *KubeMessenger) GetPendingPodsOnNode() []v1.Pod {
+	var pods []v1.Pod
+	podList, _ := m.client.ListResources("Pod", "")
+	podListBytes, _ := json.Marshal(podList.Object)
+	var podListObject v1.PodList
+	json.Unmarshal(podListBytes, &podListObject)
+	for _, pod := range podListObject.Items {
+		if pod.Spec.NodeName == m.nodeName && pod.Status.Phase == "Pending" {
+			pods = append(pods, pod)
+		}
+	}
+	return pods
 }

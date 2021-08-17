@@ -4,6 +4,7 @@ import (
 	"context"
 	log "github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
+	v1 "k8s.io/api/core/v1"
 	pluginapi "k8s.io/kubelet/pkg/apis/deviceplugin/v1beta1"
 	"kube-device-plugin-mini/pkg/plugin/common"
 	"net"
@@ -14,7 +15,7 @@ import (
 
 const (
 	serverSock   = pluginapi.DevicePluginPath + "kubegpushare.sock"
-	resourceName = "kubesys.io/gpu"
+	resourceName = "doslab.io/gpu"
 )
 
 // NvidiaDevicePlugin implements the Kubernetes device plugin API
@@ -131,23 +132,44 @@ func (p *NvidiaDevicePlugin) Register(endpoint, resourceName string) error {
 }
 
 func (p *NvidiaDevicePlugin) ListAndWatch(e *pluginapi.Empty, s pluginapi.DevicePlugin_ListAndWatchServer) error {
+	err := s.Send(&pluginapi.ListAndWatchResponse{Devices: p.devices})
+	if err != nil {
+		log.Fatalln("Failed to send devices.")
+	}
 
+	for {
+		select {
+		case <-p.stop:
+			return nil
+		case d := <-p.health:
+			// FIXME: there is no way to recover from the Unhealthy state.
+			log.Warningf("Device %d is unhealthy.", d.ID)
+			d.Health = pluginapi.Unhealthy
+			s.Send(&pluginapi.ListAndWatchResponse{Devices: p.devices})
+		}
+	}
 }
 
 func (p *NvidiaDevicePlugin) Allocate(ctx context.Context, reqs *pluginapi.AllocateRequest) (*pluginapi.AllocateResponse, error) {
+	log.Infoln("Allocating GPU...")
+	responses := pluginapi.AllocateResponse{}
 
-}
 
-func (p *NvidiaDevicePlugin) GetDevicePluginOptions(context.Context, *pluginapi.Empty) (*pluginapi.DevicePluginOptions, error) {
-	return &pluginapi.DevicePluginOptions{}, nil
-}
+	var (
+		podReqGPUCount uint
+		found     bool
+		assumePod *v1.Pod
+	)
 
-func (p *NvidiaDevicePlugin) PreStartContainer(context.Context, *pluginapi.PreStartContainerRequest) (*pluginapi.PreStartContainerResponse, error) {
-	return &pluginapi.PreStartContainerResponse{}, nil
-}
+	for _, req := range reqs.ContainerRequests {
+		podReqGPUCount += uint(len(req.DevicesIDs))
+	}
+	log.Infof("Pod request GPU count is %d.", podReqGPUCount)
 
-func (p *NvidiaDevicePlugin) GetPreferredAllocation(context.Context, *pluginapi.PreferredAllocationRequest) (*pluginapi.PreferredAllocationResponse, error) {
-	return &pluginapi.PreferredAllocationResponse{}, nil
+	pendingPods := p.messenger.GetPendingPodsOnNode()
+
+
+
 }
 
 func (p *NvidiaDevicePlugin) cleanup() {
@@ -176,5 +198,30 @@ func dial(unixSocketPath string, timeout time.Duration) (*grpc.ClientConn, error
 }
 
 func (p *NvidiaDevicePlugin) healthCheck() {
+	ctx, cancel := context.WithCancel(context.Background())
 
+	xids := make(chan *pluginapi.Device)
+	go watchXIDs(ctx, p.devices, xids)
+
+	for {
+		select {
+		case <-p.stop:
+			cancel()
+			return
+		case dev := <-xids:
+			p.health <- dev
+		}
+	}
+}
+
+func (p *NvidiaDevicePlugin) GetDevicePluginOptions(context.Context, *pluginapi.Empty) (*pluginapi.DevicePluginOptions, error) {
+	return &pluginapi.DevicePluginOptions{}, nil
+}
+
+func (p *NvidiaDevicePlugin) PreStartContainer(context.Context, *pluginapi.PreStartContainerRequest) (*pluginapi.PreStartContainerResponse, error) {
+	return &pluginapi.PreStartContainerResponse{}, nil
+}
+
+func (p *NvidiaDevicePlugin) GetPreferredAllocation(context.Context, *pluginapi.PreferredAllocationRequest) (*pluginapi.PreferredAllocationResponse, error) {
+	return &pluginapi.PreferredAllocationResponse{}, nil
 }
