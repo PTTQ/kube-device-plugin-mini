@@ -7,11 +7,8 @@ import (
 	log "github.com/sirupsen/logrus"
 	"k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
+	. "kube-device-plugin-mini/pkg/constant"
 	"os"
-)
-
-const (
-	resourceCount = "doslab.io/gpu-count"
 )
 
 // KubeMessenger is used to communicate with api server
@@ -46,39 +43,34 @@ func (m *KubeMessenger) getNode() *v1.Node {
 	return &out
 }
 
-func (m *KubeMessenger) PatchGPUCount(gpuCount int) error {
+func (m *KubeMessenger) PatchGPUCount(count, core uint) error {
 	node := m.getNode()
 	if node == nil {
 		log.Warningln("Failed to get node.")
 		return errors.New("node not found")
 	}
 
-	if val, ok := node.Status.Capacity[resourceCount]; ok {
-		if val.Value() == int64(gpuCount) {
-			log.Infof("No need to update Capacity %s", resourceCount)
-			return nil
-		}
-	}
-
 	newNode := node.DeepCopy()
-	newNode.Status.Capacity[resourceCount] = *resource.NewQuantity(int64(gpuCount), resource.DecimalSI)
-	newNode.Status.Allocatable[resourceCount] = *resource.NewQuantity(int64(gpuCount), resource.DecimalSI)
+	newNode.Status.Capacity[ResourceCount] = *resource.NewQuantity(int64(count), resource.DecimalSI)
+	newNode.Status.Allocatable[ResourceCount] = *resource.NewQuantity(int64(count), resource.DecimalSI)
+	newNode.Status.Capacity[ResourceCore] = *resource.NewQuantity(int64(core), resource.DecimalSI)
+	newNode.Status.Allocatable[ResourceCore] = *resource.NewQuantity(int64(core), resource.DecimalSI)
 
-	err := m.patchNodeStatus(newNode)
+	err := m.updateNodeStatus(newNode)
 	if err != nil {
-		log.Warningln("Failed to update Capacity %s.", resourceCount)
+		log.Warningln("Failed to update Capacity gpu-count %s and core %s.", ResourceCount, ResourceCore)
 		return errors.New("patch node status fail")
 	}
 
 	return nil
 }
 
-func (m* KubeMessenger) patchNodeStatus(newNode *v1.Node) error {
-	nodeJson, err := json.Marshal(newNode)
+func (m* KubeMessenger) updateNodeStatus(node *v1.Node) error {
+	nodeJson, err := json.Marshal(node)
 	if err != nil {
 		return err
 	}
-	_, err = m.client.UpdateResource(string(nodeJson))
+	_, err = m.client.UpdateResourceStatus(string(nodeJson))
 	if err != nil {
 		return err
 	}
@@ -97,4 +89,16 @@ func (m *KubeMessenger) GetPendingPodsOnNode() []v1.Pod {
 		}
 	}
 	return pods
+}
+
+func (m *KubeMessenger) UpdatePodAnnotations(pod *v1.Pod) error {
+	podJson, err := json.Marshal(pod)
+	if err != nil {
+		return err
+	}
+	_, err = m.client.UpdateResource(string(podJson))
+	if err != nil {
+		return err
+	}
+	return nil
 }
