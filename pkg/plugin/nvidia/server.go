@@ -10,9 +10,12 @@ import (
 	pluginapi "k8s.io/kubelet/pkg/apis/deviceplugin/v1beta1"
 	. "kube-device-plugin-mini/pkg/constant"
 	"kube-device-plugin-mini/pkg/plugin/common"
+	"math"
 	"net"
 	"os"
 	"path"
+	"sort"
+	"strconv"
 	"time"
 )
 
@@ -47,7 +50,7 @@ func (p *NvidiaDevicePlugin) Start() error {
 	p.server = grpc.NewServer([]grpc.ServerOption{}...)
 	p.stop = make(chan struct{})
 
-	err := p.messenger.PatchGPUCount(uint(len(p.physicalDeviceNameById)), uint(len(p.physicalDeviceNameById)))
+	err := p.messenger.PatchGPUCount(uint(len(p.physicalDeviceNameById)), uint(100*len(p.physicalDeviceNameById)))
 	if err != nil {
 		p.cleanup()
 		return err
@@ -60,7 +63,7 @@ func (p *NvidiaDevicePlugin) Start() error {
 		return err
 	}
 
-	err = p.Register(pluginapi.KubeletSocket, ResourceName)
+	err = p.Register(ResourceName)
 	if err != nil {
 		p.cleanup()
 		log.Infof("Could not register device plugin: %s.", err)
@@ -103,7 +106,7 @@ func (p *NvidiaDevicePlugin) Serve() error {
 	return nil
 }
 
-func (p *NvidiaDevicePlugin) Register(endpoint, resourceName string) error {
+func (p *NvidiaDevicePlugin) Register(resourceName string) error {
 	conn, err := dial(pluginapi.KubeletSocket, 5*time.Second)
 	if err != nil {
 		return err
@@ -113,7 +116,7 @@ func (p *NvidiaDevicePlugin) Register(endpoint, resourceName string) error {
 	client := pluginapi.NewRegistrationClient(conn)
 	req := &pluginapi.RegisterRequest{
 		Version:      pluginapi.Version,
-		Endpoint:     path.Base(endpoint),
+		Endpoint:     path.Base(p.socket),
 		ResourceName: resourceName,
 	}
 
@@ -129,6 +132,7 @@ func (p *NvidiaDevicePlugin) ListAndWatch(e *pluginapi.Empty, s pluginapi.Device
 	if err != nil {
 		log.Fatalln("Failed to send devices.")
 	}
+	log.Infof("Send %d virtual devices.", len(p.devices))
 
 	select {
 	case <-p.stop:
@@ -163,6 +167,8 @@ func (p *NvidiaDevicePlugin) Allocate(ctx context.Context, reqs *pluginapi.Alloc
 		return nil, errors.New("not found candidate pod")
 	}
 
+	candidatePods = sortPodByAssumeTime(candidatePods)
+
 	for _, pod := range candidatePods {
 		var resourceTotal uint = 0
 		for _, container := range pod.Spec.Containers {
@@ -193,8 +199,8 @@ func (p *NvidiaDevicePlugin) Allocate(ctx context.Context, reqs *pluginapi.Alloc
 			Envs: map[string]string{
 				EnvNvidiaGPU:           gpuId,
 				EnvResourceUUID:        gpuId,
-				EnvResourceByPod:       fmt.Sprintf("%d", podReqGPUCount),
-				EnvResourceByContainer: fmt.Sprintf("%d", reqGPU),
+				EnvResourceUsedByPod:       fmt.Sprintf("%d", podReqGPUCount),
+				EnvResourceUsedByContainer: fmt.Sprintf("%d", reqGPU),
 				EnvResourceTotal:       fmt.Sprintf("%d", len(p.devices)),
 			},
 		}
@@ -289,3 +295,36 @@ func getGPUIDFromPodAnnotation(pod *v1.Pod) (uuid string) {
 	}
 	return uuid
 }
+
+func sortPodByAssumeTime(pods []*v1.Pod) []*v1.Pod {
+	podList := make(orderedPodByAssumeTime, 0, len(pods))
+	for _, v := range pods {
+		podList = append(podList, v)
+	}
+	sort.Sort(podList)
+	return []*v1.Pod(podList)
+}
+
+type orderedPodByAssumeTime []*v1.Pod
+
+func (this orderedPodByAssumeTime) Len() int {
+	return len(this)
+}
+
+func (this orderedPodByAssumeTime) Less(i, j int) bool {
+	return getAssumeTimeFromPodAnnotation(this[i]) <= getAssumeTimeFromPodAnnotation(this[j])
+}
+
+func (this orderedPodByAssumeTime) Swap(i, j int) {
+	this[i], this[j] = this[j], this[i]
+}
+func getAssumeTimeFromPodAnnotation(pod *v1.Pod) uint64 {
+	if assumeTime, ok := pod.Annotations[EnvResourceAssumeTime]; ok {
+		predicateTime, err := strconv.ParseUint(assumeTime, 10, 64)
+		if err == nil {
+			return predicateTime
+		}
+	}
+	return math.MaxUint64
+}
+

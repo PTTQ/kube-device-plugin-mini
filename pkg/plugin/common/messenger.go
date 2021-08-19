@@ -19,9 +19,10 @@ type KubeMessenger struct {
 
 func NewKubeMessenger(masterUrl, token string) *KubeMessenger {
 	client := kubesys.NewKubernetesClient(masterUrl, token)
-	nodeName := os.Getenv("NODE_NAME")
-	if nodeName == "" {
-		log.Fatalln("There is no env NODE_NAME.")
+	client.Init()
+	nodeName, err := os.Hostname()
+	if err != nil || nodeName == "" {
+		log.Fatalln("Failed to get node name.")
 	}
 	return &KubeMessenger{
 		client:   client,

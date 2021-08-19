@@ -18,8 +18,8 @@ func GetDevices() ([]*pluginapi.Device, map[uint]string) {
 	check(err)
 
 	log.Infoln("Getting devices...")
-	var devices []*pluginapi.Device
-	var deviceMap map[uint]string
+	devices := []*pluginapi.Device{}
+	deviceMap := map[uint]string{}
 	for idx := uint(0); idx < n; idx++ {
 		d, err := nvml.NewDevice(idx)
 		check(err)
@@ -35,5 +35,6 @@ func GetDevices() ([]*pluginapi.Device, map[uint]string) {
 		}
 
 	}
+	log.Infof("Get %d physical devices and %d virtual devices.", n, len(devices))
 	return devices, deviceMap
 }
