@@ -164,6 +164,7 @@ func (p *NvidiaDevicePlugin) Allocate(ctx context.Context, reqs *pluginapi.Alloc
 	}
 
 	if candidatePods == nil || len(candidatePods) == 0 {
+		log.Warningln("There is no candidate pods.")
 		return nil, errors.New("not found candidate pod")
 	}
 
@@ -184,7 +185,8 @@ func (p *NvidiaDevicePlugin) Allocate(ctx context.Context, reqs *pluginapi.Alloc
 	}
 
 	if !found {
-		return nil, errors.New("not found candidate pod")
+		log.Warningln("There is no assume pod.")
+		return nil, errors.New("not found assume pod")
 	}
 
 	gpuId := getGPUIDFromPodAnnotation(assumePod)
@@ -197,11 +199,11 @@ func (p *NvidiaDevicePlugin) Allocate(ctx context.Context, reqs *pluginapi.Alloc
 		reqGPU := uint(len(req.DevicesIDs))
 		response := pluginapi.ContainerAllocateResponse{
 			Envs: map[string]string{
-				EnvNvidiaGPU:           gpuId,
-				EnvResourceUUID:        gpuId,
+				EnvNvidiaGPU:               gpuId,
+				EnvResourceUUID:            gpuId,
 				EnvResourceUsedByPod:       fmt.Sprintf("%d", podReqGPUCount),
 				EnvResourceUsedByContainer: fmt.Sprintf("%d", reqGPU),
-				EnvResourceTotal:       fmt.Sprintf("%d", len(p.devices)),
+				EnvResourceTotal:           fmt.Sprintf("%d", len(p.devices)),
 			},
 		}
 		responses.ContainerResponses = append(responses.ContainerResponses, &response)
@@ -209,10 +211,10 @@ func (p *NvidiaDevicePlugin) Allocate(ctx context.Context, reqs *pluginapi.Alloc
 
 	newPod := assumePod.DeepCopy()
 	newPod.Annotations[EnvAssignedFlag] = "true"
-	newPod.Annotations[EnvResourceAssumeTime] = string(time.Now().UnixNano())
 
 	err := p.messenger.UpdatePodAnnotations(newPod)
 	if err != nil {
+		log.Warningln("Failed to update pod annotation.")
 		return nil, errors.New("failed to update pod annotation")
 	}
 
@@ -327,4 +329,3 @@ func getAssumeTimeFromPodAnnotation(pod *v1.Pod) uint64 {
 	}
 	return math.MaxUint64
 }
-

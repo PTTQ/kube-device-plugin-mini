@@ -86,6 +86,8 @@ func (m *KubeMessenger) GetPendingPodsOnNode() []v1.Pod {
 	json.Unmarshal(podListBytes, &podListObject)
 	for _, pod := range podListObject.Items {
 		if pod.Spec.NodeName == m.nodeName && pod.Status.Phase == "Pending" {
+			pod.Kind = "Pod"
+			pod.APIVersion = "v1"
 			pods = append(pods, pod)
 		}
 	}
