@@ -59,14 +59,14 @@ func (p *NvidiaDevicePlugin) Start() error {
 	err = p.Serve()
 	if err != nil {
 		p.cleanup()
-		log.Warningln("Could not serve: %s.", err)
+		log.Warningf("Could not serve: %s.", err)
 		return err
 	}
 
 	err = p.Register(ResourceName)
 	if err != nil {
 		p.cleanup()
-		log.Infof("Could not register device plugin: %s.", err)
+		log.Warningf("Could not register device plugin: %s.", err)
 		return err
 	}
 	log.Infoln("Registered device plugin with Kubelet.")
@@ -81,10 +81,13 @@ func (p *NvidiaDevicePlugin) Stop() error {
 		return nil
 	}
 	p.server.Stop()
+	p.cleanup()
+	if err := p.messenger.PatchGPUCount(0, 0); err != nil {
+		return err
+	}
 	if err := os.Remove(p.socket); err != nil && !os.IsNotExist(err) {
 		return err
 	}
-	p.cleanup()
 	return nil
 }
 
@@ -210,7 +213,7 @@ func (p *NvidiaDevicePlugin) Allocate(ctx context.Context, reqs *pluginapi.Alloc
 	}
 
 	newPod := assumePod.DeepCopy()
-	newPod.Annotations[EnvAssignedFlag] = "true"
+	newPod.Annotations[AnnAssignedFlag] = "true"
 
 	err := p.messenger.UpdatePodAnnotations(newPod)
 	if err != nil {
@@ -270,11 +273,11 @@ func isCandidatePod(pod *v1.Pod) bool {
 		return false
 	}
 
-	if _, ok := pod.ObjectMeta.Annotations[EnvResourceAssumeTime]; !ok {
+	if _, ok := pod.ObjectMeta.Annotations[AnnResourceAssumeTime]; !ok {
 		return false
 	}
 
-	if assigned, ok := pod.ObjectMeta.Annotations[EnvAssignedFlag]; ok {
+	if assigned, ok := pod.ObjectMeta.Annotations[AnnAssignedFlag]; ok {
 		if assigned == "false" {
 			return true
 		} else {
@@ -288,7 +291,7 @@ func isCandidatePod(pod *v1.Pod) bool {
 func getGPUIDFromPodAnnotation(pod *v1.Pod) (uuid string) {
 	uuid = ""
 	if len(pod.ObjectMeta.Annotations) > 0 {
-		value, found := pod.ObjectMeta.Annotations[EnvResourceUUID]
+		value, found := pod.ObjectMeta.Annotations[AnnResourceUUID]
 		if found {
 			uuid = value
 		} else {
@@ -321,7 +324,7 @@ func (this orderedPodByAssumeTime) Swap(i, j int) {
 	this[i], this[j] = this[j], this[i]
 }
 func getAssumeTimeFromPodAnnotation(pod *v1.Pod) uint64 {
-	if assumeTime, ok := pod.Annotations[EnvResourceAssumeTime]; ok {
+	if assumeTime, ok := pod.Annotations[AnnResourceAssumeTime]; ok {
 		predicateTime, err := strconv.ParseUint(assumeTime, 10, 64)
 		if err == nil {
 			return predicateTime

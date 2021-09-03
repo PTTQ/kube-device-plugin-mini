@@ -42,3 +42,19 @@ spec:
           doslab.io/gpu-core: 12
   nodeSelector:
     kubernetes.io/hostname: dell04
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: po-1
+spec:
+  schedulerName: doslab-gpu-scheduler
+  containers:
+    - image: nvidia/cuda:10.1-base-ubuntu18.04
+      name: gpu-pod-demo2
+      command: ["sleep"]
+      args: ["1000000"]
+      resources:
+        limits:
+          doslab.io/gpu-memory: 2048  # 1024MB
+          doslab.io/gpu-core: 20

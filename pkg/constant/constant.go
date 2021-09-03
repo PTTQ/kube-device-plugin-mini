@@ -11,12 +11,14 @@ const (
 	ResourceCount = "doslab.io/gpu-count"
 	ResourceCore  = "doslab.io/gpu-core"
 
-	EnvResourceAssumeTime  = "DOSLAB_IO_GPU_ASSUME_TIME"
-	EnvAssignedFlag        = "DOSLAB_IO_GPU_ASSIGNED"
-	EnvResourceUUID        = "DOSLAB_IO_GPU_UUID"
+	AnnResourceAssumeTime = "doslab.io/gpu-assume-time"
+	AnnAssignedFlag       = "doslab.io/gpu-assigned"
+	AnnResourceUUID       = "doslab.io/gpu-uuid"
+
+	EnvResourceUUID            = "DOSLAB_IO_GPU_UUID"
 	EnvResourceUsedByPod       = "DOSLAB_IO_GPU_RESOURCE_USED_BY_POD"
 	EnvResourceUsedByContainer = "DOSLAB_IO_GPU_RESOURCE_USED_BY_CONTAINER"
-	EnvResourceTotal       = "DOSLAB_IO_GPU_RESOURCE_TOTAL"
+	EnvResourceTotal           = "DOSLAB_IO_GPU_RESOURCE_TOTAL"
 
 	EnvNvidiaGPU = "NVIDIA_VISIBLE_DEVICES"
 )
