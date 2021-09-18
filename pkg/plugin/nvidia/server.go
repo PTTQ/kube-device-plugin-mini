@@ -198,15 +198,44 @@ func (p *NvidiaDevicePlugin) Allocate(ctx context.Context, reqs *pluginapi.Alloc
 		log.Warningf("Failed to get gpu id for pod %s in ns %s.", assumePod.Name, assumePod.Namespace)
 	}
 
+	gemSchedulerIp := ""
+	gemPodManagerPort := ""
+	isOk := false
+	for i := 0; i < 100; i++ {
+		pod := p.messenger.GetPodOnNode(assumePod.Name, assumePod.Namespace)
+		if pod == nil {
+			log.Warningf("Failed to get pod %s, on ns %s.", assumePod.Name, assumePod.Namespace)
+			time.Sleep(time.Millisecond * 100)
+			continue
+		}
+		gemSchedulerIp = getGemSchedulerIpFromPodAnnotation(pod)
+		gemPodManagerPort = getGemPodManagerPortFromPodAnnotation(pod)
+		if gemSchedulerIp != "" && gemPodManagerPort != "" {
+			isOk = true
+			assumePod = pod
+			break
+		}
+		time.Sleep(time.Millisecond * 100)
+	}
+
+	if !isOk {
+		return nil, errors.New("no gem-scheduler-ip, gem-podmanager-port or gem-file")
+	}
+
 	for _, req := range reqs.ContainerRequests {
 		reqGPU := uint(len(req.DevicesIDs))
 		response := pluginapi.ContainerAllocateResponse{
 			Envs: map[string]string{
-				EnvNvidiaGPU:               gpuId,
-				EnvResourceUUID:            gpuId,
-				EnvResourceUsedByPod:       fmt.Sprintf("%d", podReqGPUCount),
-				EnvResourceUsedByContainer: fmt.Sprintf("%d", reqGPU),
-				EnvResourceTotal:           fmt.Sprintf("%d", len(p.devices)),
+				EnvNvidiaDriverCapabilities: "compute,utility",
+				EnvLDPreload:                KubeShareLibraryPath + "/libgemhook.so.1",
+				EnvPodManagerIp:             gemSchedulerIp,
+				EnvPodManagerPort:           gemPodManagerPort,
+				EnvPodName:                  assumePod.Name,
+				EnvNvidiaGPU:                gpuId,
+				EnvResourceUUID:             gpuId,
+				EnvResourceUsedByPod:        fmt.Sprintf("%d", podReqGPUCount),
+				EnvResourceUsedByContainer:  fmt.Sprintf("%d", reqGPU),
+				EnvResourceTotal:            fmt.Sprintf("%d", len(p.devices)),
 			},
 		}
 		responses.ContainerResponses = append(responses.ContainerResponses, &response)
@@ -299,6 +328,32 @@ func getGPUIDFromPodAnnotation(pod *v1.Pod) (uuid string) {
 		}
 	}
 	return uuid
+}
+
+func getGemSchedulerIpFromPodAnnotation(pod *v1.Pod) string {
+	id := ""
+	if len(pod.ObjectMeta.Annotations) > 0 {
+		value, found := pod.ObjectMeta.Annotations[AnnGemSchedulerIp]
+		if found {
+			id = value
+		} else {
+			log.Warningf("Failed to get gem-scheduler-ip for pod %s in ns %s.", pod.Name, pod.Namespace)
+		}
+	}
+	return id
+}
+
+func getGemPodManagerPortFromPodAnnotation(pod *v1.Pod) string {
+	port := ""
+	if len(pod.ObjectMeta.Annotations) > 0 {
+		value, found := pod.ObjectMeta.Annotations[AnnGemPodManagerPort]
+		if found {
+			port = value
+		} else {
+			log.Warningf("Failed to get gem-podmanager-port for pod %s in ns %s.", pod.Name, pod.Namespace)
+		}
+	}
+	return port
 }
 
 func sortPodByAssumeTime(pods []*v1.Pod) []*v1.Pod {

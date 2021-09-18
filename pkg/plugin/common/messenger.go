@@ -105,3 +105,17 @@ func (m *KubeMessenger) UpdatePodAnnotations(pod *v1.Pod) error {
 	}
 	return nil
 }
+
+func (m *KubeMessenger) GetPodOnNode(podName, namespace string) *v1.Pod {
+	pod, err := m.client.GetResource("Pod", namespace, podName)
+	if err != nil {
+		return nil
+	}
+	podBytes, _ := json.Marshal(pod.Object)
+	var out v1.Pod
+	err = json.Unmarshal(podBytes, &out)
+	if err != nil {
+		return nil
+	}
+	return &out
+}
